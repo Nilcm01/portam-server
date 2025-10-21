@@ -8,7 +8,11 @@ const {
     deleteUser,
     addGroupToUser,
     removeGroupFromUser,
-    listUserGroups
+    listUserGroups,
+    listUserSuports,
+    getUserSuport,
+    addSuportToUser,
+    removeSuportFromUser
 } = require('../controllers/users');
 
 // Routes for user management
@@ -20,5 +24,9 @@ router.delete('/users/:id', deleteUser);
 router.post('/users/:id/groups', addGroupToUser);
 router.delete('/users/:id/groups/:groupId', removeGroupFromUser);
 router.get('/users/:id/groups', listUserGroups);
+router.get('/users/:id/suports', listUserSuports);
+router.get('/users/:id/suports/:uid', getUserSuport);
+router.post('/users/:id/suports', addSuportToUser);
+router.delete('/users/:id/suports/:uid', removeSuportFromUser);
 
 module.exports = router;

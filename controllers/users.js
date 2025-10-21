@@ -1,3 +1,4 @@
+const e = require('express');
 const supabase = require('../config/supabase');
 
 /*
@@ -21,6 +22,11 @@ const supabase = require('../config/supabase');
     - name (UQ)         - varchar
     - description       - text
     - expiration        - int8 (days) (null = never expires)
+
+    Suports:
+    - uid (PK, UQ)          - int8
+    - user (FK -> users.id) - int8
+    - activation            - timestamp
 */
 
 
@@ -384,7 +390,166 @@ const listUserGroups = async (req, res) => {
 };
 
 
-//// SUPPORT FUNCTIONS
+//// SUPORT FUNCTIONS
+
+
+// Get all suports from user > GET: /users/:id/suports
+const listUserSuports = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const { data, error } = await supabase
+            .from('suports')
+            .select('*')
+            .eq('user', id);
+
+        if (error) throw error;
+
+        res.status(200).json({
+            success: true,
+            user_id: id,
+            suports: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// Get specific suport from user > GET: /users/:id/suports/:uid
+const getUserSuport = async (req, res) => {
+    const { id, uid } = req.params;
+    try {
+        const { data, error } = await supabase
+            .from('suports')
+            .select('*')
+            .eq('user', id)
+            .eq('uid', uid)
+            .single();
+
+        if (error) throw error;
+
+        res.status(200).json({
+            success: true,
+            suport: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// Add suport to user > POST: /users/:id/suports
+// { "uid": 123456789012 }
+const addSuportToUser = async (req, res) => {
+    const { uid } = req.params;
+
+    /*
+        - Check if suport with uid already exists
+        - If does not exist, create new suport with current timestamp
+        - If exists, check if belongs to user
+            - If belongs to user, return error
+            - If does not belong to user, assign to user with current timestamp
+    */
+
+    try {
+        // Check if suport with uid already exists
+        const { data: existingSuport, error: existingError } = await supabase
+            .from('suports')
+            .select('*')
+            .eq('uid', uid)
+            .single();
+
+        if (existingError && existingError.code !== 'PGRST116') {
+            throw existingError;
+        }
+
+        const now = new Date().toISOString();
+
+        // If suport does not exist
+        if (!existingSuport) {
+            // Create new suport
+            const { data: newSuport, error: newError } = await supabase
+                .from('suports')
+                .insert([{ uid, user: id, activation: now }])
+                .select('*')
+                .single();
+
+            if (newError) throw newError;
+
+            res.status(201).json({
+                success: true,
+                suport: newSuport
+            });
+        } else {
+            // Suport exists
+
+            if (existingSuport.user === id) { // Assigned to this user
+                return res.status(400).json({
+                    success: false,
+                    error: 'Suport already assigned to this user'
+                });
+            } else if (existingSuport.user !== null) { // Assigned to another user
+                return res.status(400).json({
+                    success: false,
+                    error: 'Suport already assigned to another user'
+                });
+            } else { // Not assigned to any user
+                // Assign suport to user
+                const { data: updatedSuport, error: updateError } = await supabase
+                    .from('suports')
+                    .update({ user: id, activation: now })
+                    .eq('uid', uid)
+                    .select('*')
+                    .single();
+
+                if (updateError) throw updateError;
+
+                res.status(200).json({
+                    success: true,
+                    suport: updatedSuport
+                });
+            }
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// Remove suport from user > DELETE: /users/:id/suports/:uid
+const removeSuportFromUser = async (req, res) => {
+    const { id, uid } = req.params;
+    try {
+        const { data, error } = await supabase
+            .from('suports')
+            .update({ user: null, activation: null })
+            .eq('user', id)
+            .eq('uid', uid)
+            .select('*')
+            .single();
+
+        if (error) throw error;
+
+        res.status(200).json({
+            success: true,
+            uid: uid
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+
+//// LOCAL FUNCTIONS
 
 
 // Calculate the age on this exact day given a birthdate
@@ -416,5 +581,9 @@ module.exports = {
     deleteUser,             // DELETE   : /users/:id
     addGroupToUser,         // POST     : /users/:id/groups
     removeGroupFromUser,    // DELETE   : /users/:id/groups/:groupId
-    listUserGroups          // GET      : /users/:id/groups
+    listUserGroups,         // GET      : /users/:id/groups
+    listUserSuports,        // GET      : /users/:id/suports
+    getUserSuport,          // GET      : /users/:id/suports/:uid
+    addSuportToUser,        // POST     : /users/:id/suports
+    removeSuportFromUser    // DELETE   : /users/:id/suports/:uid
 };
