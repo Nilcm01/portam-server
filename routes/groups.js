@@ -9,10 +9,10 @@ const {
 } = require('../controllers/groups');
 
 // Routes for group management
-router.get('/', getAllGroups);
-router.get('/:id', getGroupById);
-router.post('/', createGroup);
-router.put('/:id', updateGroup);
-router.delete('/:id', deleteGroup);
+router.get('/groups/', getAllGroups);
+router.get('/groups/:id', getGroupById);
+router.post('/groups/', createGroup);
+router.put('/groups/:id', updateGroup);
+router.delete('/groups/:id', deleteGroup);
 
 module.exports = router;

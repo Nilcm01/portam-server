@@ -3,7 +3,9 @@ const cors = require('cors');
 require('dotenv').config();
 
 // Import routes
+const groupsRoutes = require('./routes/groups');
 const usersRoutes = require('./routes/users');
+const zonesRoutes = require('./routes/zones');
 
 
 // Initialize Express app
@@ -25,7 +27,9 @@ app.get('/', (req, res) => {
 
 
 // Use routes
+app.use('/api', groupsRoutes);
 app.use('/api', usersRoutes);
+app.use('/api', zonesRoutes);
 
 
 // Health check
