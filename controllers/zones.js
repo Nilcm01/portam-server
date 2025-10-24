@@ -56,11 +56,30 @@ const getZoneById = async (req, res) => {
 
 // Create new zone > POST: /zones
 const createZone = async (req, res) => {
-    const { name, description } = req.body;
+    const { id, name, description } = req.body;
     try {
+        // Check if zone with same id already exists
+        const { data: existingZone, error: fetchError } = await supabase
+            .from('zones')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (fetchError && fetchError.code !== 'PGRST116') {
+            throw fetchError;
+        }
+
+        if (existingZone) {
+            return res.status(400).json({
+                success: false,
+                error: 'Zone with this ID already exists'
+            });
+        }
+
+
         const { data, error } = await supabase
             .from('zones')
-            .insert([{ name, description }])
+            .insert([{ id, name, description }])
             .select('*')
             .single();
 
