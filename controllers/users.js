@@ -445,7 +445,8 @@ const getUserSuport = async (req, res) => {
 // Add suport to user > POST: /users/:id/suports
 // { "uid": 123456789012 }
 const addSuportToUser = async (req, res) => {
-    const { uid } = req.params;
+    const { id } = req.params;
+    const { uid } = req.body;
 
     /*
         - Check if suport with uid already exists
@@ -467,14 +468,15 @@ const addSuportToUser = async (req, res) => {
             throw existingError;
         }
 
-        const now = new Date().toISOString();
+        const now = new Date();
+        const nowStr = "" + now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0') + " " + String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0');
 
         // If suport does not exist
         if (!existingSuport) {
             // Create new suport
             const { data: newSuport, error: newError } = await supabase
                 .from('suports')
-                .insert([{ uid, user: id, activation: now }])
+                .insert([{ uid, user: id, activation: nowStr }])
                 .select('*')
                 .single();
 
@@ -487,7 +489,7 @@ const addSuportToUser = async (req, res) => {
         } else {
             // Suport exists
 
-            if (existingSuport.user === id) { // Assigned to this user
+            if (existingSuport.user == id) { // Assigned to this user
                 return res.status(400).json({
                     success: false,
                     error: 'Suport already assigned to this user'
