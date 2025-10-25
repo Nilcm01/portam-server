@@ -4,6 +4,7 @@ require('dotenv').config();
 
 // Import routes
 const groupsRoutes = require('./routes/groups');
+const stationsRoutes = require('./routes/stations');
 const usersRoutes = require('./routes/users');
 const zonesRoutes = require('./routes/zones');
 
@@ -28,6 +29,7 @@ app.get('/', (req, res) => {
 
 // Use routes
 app.use('/api', groupsRoutes);
+app.use('/api', stationsRoutes);
 app.use('/api', usersRoutes);
 app.use('/api', zonesRoutes);
 
