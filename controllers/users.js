@@ -297,9 +297,8 @@ const addGroupToUser = async (req, res) => {
         } else if (groupId === '30' && yearsOldToday(birthdate) < 30) {
             const dayBefore = dayBeforeSpecificBirthday(birthdate, 30);
             expirationDate = "" + dayBefore.getFullYear() + "-" + String(dayBefore.getMonth() + 1).padStart(2, '0') + "-" + String(dayBefore.getDate()).padStart(2, '0');
-        } else if (groupId === '65' && yearsOldToday(birthdate) < 65) {
-            const dayBefore = dayBeforeSpecificBirthday(birthdate, 65);
-            expirationDate = "" + dayBefore.getFullYear() + "-" + String(dayBefore.getMonth() + 1).padStart(2, '0') + "-" + String(dayBefore.getDate()).padStart(2, '0');
+        } else if (groupId === '65' && yearsOldToday(birthdate) >= 65) {
+            expirationDate = null; // No expiration for seniors
         } else if (groupData.expiration && groupData.expiration > 0 && groupData.expiration !== null) {
             // Calculate expiration date based on group expiration days
             const expiration = new Date();
