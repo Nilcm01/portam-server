@@ -735,11 +735,6 @@ const removeTitleFromUser = async (req, res) => {
 };
 
 
-// Set first use for user title > POST: /titles/user/:userId/:userTitleId/first_use
-// TODO
-const setFirstUseForUserTitle = () => {};
-
-
 module.exports = {
     getAllTitles,            // GET      : /titles
     getTitleById,            // GET      : /titles/:id
@@ -750,7 +745,5 @@ module.exports = {
     getAllUserTitles,        // GET      : /titles/user/:userId
     getUserTitleById,        // GET      : /titles/user/:userId/:userTitleId
     assignTitleToUser,       // POST     : /titles/user/:userId
-    removeTitleFromUser,     // DELETE   : /titles/user/:userId/:userTitleId
-
-    setFirstUseForUserTitle  // POST     : /titles/user/:userId/:userTitleId/first_use
+    removeTitleFromUser      // DELETE   : /titles/user/:userId/:userTitleId
 };
