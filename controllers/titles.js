@@ -643,10 +643,7 @@ const assignTitleToUser = async (req, res) => {
             currentDate.setDate(currentDate.getDate() + titleData.expiration);
             expiration = "" + currentDate.getFullYear() + "-" +
                 String(currentDate.getMonth() + 1).padStart(2, '0') + "-" +
-                String(currentDate.getDate()).padStart(2, '0') + "T" +
-                String(currentDate.getHours()).padStart(2, '0') + ":" +
-                String(currentDate.getMinutes()).padStart(2, '0') + ":" +
-                String(currentDate.getSeconds()).padStart(2, '0') + "Z";
+                String(currentDate.getDate()).padStart(2, '0');
         }
 
         // 4. Generate random id for user title
