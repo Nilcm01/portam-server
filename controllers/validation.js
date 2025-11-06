@@ -76,10 +76,11 @@ const { getMessage, getMessageWithData } = require('../messages/validation');
         -> if not, error ERROR_USER_TITLE_NOT_VALID_FOR_ZONE
     9. Checks if the link time has not passed (if link is not null)
         -> gets the most recent validation for this user_title (same user_title)
-        -> if validation exists and (current_time - validation_time) < link
+        -> if validation exists and (current_time - validation_time) < link and station is DIFFERENT from last validation
             -> the user_title is still valid for the station's zones (already checked in step 8)
             -> validation is free (no uses consumed), create validation record and return success
         -> purpose: allow users to use multiple public transport types in the same trip without paying again
+        -> note: link time only applies to DIFFERENT stations to prevent multiple people sharing the same title at the same station
     10. Checks if the user_title has uses left (if uses_left is not null)
         -> if uses_left <= 0, error ERROR_NO_USES_LEFT
     
@@ -184,7 +185,9 @@ const validation = async (req, res) => {
                 .order('id', { ascending: true });
 
             if (allZonesError || !allZones) {
-                const message = getMessage('ERROR_INTERNAL_SERVER');
+                const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+                    internal: allZonesError ? allZonesError.message : 'No zones data returned from database'
+                });
                 return res.status(message.code).json(message);
             }
 
@@ -233,7 +236,9 @@ const validation = async (req, res) => {
                 .eq('id', userTitleData.id);
 
             if (updateError) {
-                const message = getMessage('ERROR_INTERNAL_SERVER');
+                const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+                    internal: `Failed to update user_title first_use and zone_origin: ${updateError.message}`
+                });
                 return res.status(message.code).json(message);
             }
 
@@ -248,7 +253,9 @@ const validation = async (req, res) => {
                 .insert(userTitleZones);
 
             if (zonesInsertError) {
-                const message = getMessage('ERROR_INTERNAL_SERVER');
+                const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+                    internal: `Failed to insert user_title_zones: ${zonesInsertError.message}`
+                });
                 return res.status(message.code).json(message);
             }
 
@@ -260,7 +267,7 @@ const validation = async (req, res) => {
         // 7. Check if the re-entry time has passed
         if (userTitleData.re_entry !== null) {
             const { data: lastValidation, error: lastValidationError } = await supabase
-                .from('validations')
+                .from('validation')
                 .select('*')
                 .eq('user_title', userTitleData.id)
                 .order('timestamp', { ascending: false })
@@ -268,10 +275,17 @@ const validation = async (req, res) => {
                 .single();
 
             if (lastValidation && !lastValidationError) {
-                const timeSinceLastValidation = (new Date() - new Date(lastValidation.timestamp)) / (1000 * 60); // minutes
+                // Add 'Z' to force UTC interpretation if not present, ensuring consistent timezone handling
+                const timestampStr = lastValidation.timestamp.endsWith('Z') ? lastValidation.timestamp : lastValidation.timestamp + 'Z';
+                const lastValidationTime = new Date(timestampStr);
+                const timeSinceLastValidation = (new Date() - lastValidationTime) / (1000 * 60); // minutes
                 
                 // Check if it's the same station and re-entry time hasn't passed
-                if (lastValidation.station === station && timeSinceLastValidation < userTitleData.re_entry) {
+                // Convert both to numbers to ensure proper comparison
+                const lastStationId = Number(lastValidation.station);
+                const currentStationId = Number(station);
+                
+                if (lastStationId === currentStationId && timeSinceLastValidation < userTitleData.re_entry) {
                     const message = getMessage('ERROR_REENTRY_TIME_NOT_PASSED');
                     return res.status(message.code).json(message);
                 }
@@ -285,7 +299,9 @@ const validation = async (req, res) => {
             .eq('station', station);
 
         if (stationZonesError) {
-            const message = getMessage('ERROR_INTERNAL_SERVER');
+            const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+                internal: `Failed to fetch station zones: ${stationZonesError.message}`
+            });
             return res.status(message.code).json(message);
         }
 
@@ -295,7 +311,9 @@ const validation = async (req, res) => {
             .eq('user_title', userTitleData.id);
 
         if (userTitleZonesError) {
-            const message = getMessage('ERROR_INTERNAL_SERVER');
+            const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+                internal: `Failed to fetch user_title zones: ${userTitleZonesError.message}`
+            });
             return res.status(message.code).json(message);
         }
 
@@ -313,7 +331,7 @@ const validation = async (req, res) => {
         let isFreeValidation = false;
         if (userTitleData.link !== null) {
             const { data: lastValidation, error: lastValidationError } = await supabase
-                .from('validations')
+                .from('validation')
                 .select('*')
                 .eq('user_title', userTitleData.id)
                 .order('timestamp', { ascending: false })
@@ -321,9 +339,18 @@ const validation = async (req, res) => {
                 .single();
 
             if (lastValidation && !lastValidationError) {
-                const timeSinceLastValidation = (new Date() - new Date(lastValidation.timestamp)) / (1000 * 60); // minutes
+                // Add 'Z' to force UTC interpretation if not present, ensuring consistent timezone handling
+                const timestampStr = lastValidation.timestamp.endsWith('Z') ? lastValidation.timestamp : lastValidation.timestamp + 'Z';
+                const lastValidationTime = new Date(timestampStr);
+                const timeSinceLastValidation = (new Date() - lastValidationTime) / (1000 * 60); // minutes
                 
-                if (timeSinceLastValidation < userTitleData.link) {
+                // Link time only applies if the station is DIFFERENT from the last validation
+                // This prevents multiple people from using the same title to enter the same station
+                // Convert both to numbers to ensure proper comparison
+                const lastStationId = Number(lastValidation.station);
+                const currentStationId = Number(station);
+                
+                if (timeSinceLastValidation < userTitleData.link && lastStationId !== currentStationId) {
                     // Validation is free
                     isFreeValidation = true;
                 }
@@ -341,7 +368,7 @@ const validation = async (req, res) => {
         // All checks passed - create validation record
         const currentTime = new Date();
         const { data: validationRecord, error: validationInsertError } = await supabase
-            .from('validations')
+            .from('validation')
             .insert({
                 user: suportData.user,
                 suport: suport,
@@ -354,7 +381,9 @@ const validation = async (req, res) => {
             .single();
 
         if (validationInsertError) {
-            const message = getMessage('ERROR_INTERNAL_SERVER');
+            const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+                internal: `Failed to create validation record: ${validationInsertError.message}`
+            });
             return res.status(message.code).json(message);
         }
 
@@ -368,7 +397,9 @@ const validation = async (req, res) => {
                 .eq('id', userTitleData.id);
 
             if (updateUsesError) {
-                const message = getMessage('ERROR_INTERNAL_SERVER');
+                const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+                    internal: `Failed to decrement uses_left: ${updateUsesError.message}`
+                });
                 return res.status(message.code).json(message);
             }
         }
@@ -388,7 +419,9 @@ const validation = async (req, res) => {
 
     } catch (error) {
         console.error('Validation error:', error);
-        const message = getMessage('ERROR_INTERNAL_SERVER');
+        const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+            internal: `Unexpected error during validation: ${error.message}`
+        });
         return res.status(message.code).json(message);
     }
 };
