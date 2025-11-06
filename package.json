@@ -1,7 +1,7 @@
 {
     "name": "portam-server",
     "version": "1.0.0",
-    "description": "Basic ExpressJS server with Supabase database connection",
+    "description": "Backend server for PORTA'M service using Express and Supabase",
     "main": "server.js",
     "scripts": {
         "start": "node server.js",
