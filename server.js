@@ -13,7 +13,7 @@ const zonesRoutes = require('./routes/zones');
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
+//const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -65,10 +65,10 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+/*app.listen(PORT, () => {
     console.log(`[P'M SERVER] Server is running on port ${PORT}`);
     console.log(`[P'M SERVER] Health check available at http://localhost:${PORT}/health`);
     console.log(`[P'M SERVER] API endpoints available at http://localhost:${PORT}/api/`);
-});
+});*/
 
 module.exports = app;
