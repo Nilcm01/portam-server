@@ -673,7 +673,7 @@ const assignTitleToUser = async (req, res) => {
                 uses_left: uses_left,
                 expiration: expiration,
                 re_entry: re_entry,
-                active: true,
+                active: false,
                 link: link,
                 num_zones: num_zones
             });
@@ -734,6 +734,42 @@ const removeTitleFromUser = async (req, res) => {
     }
 };
 
+// Activate title from user > POST: /titles/user/:userId/:userTitleId/activate
+// Every user can only have one active title at a time
+const activateTitleForUser = async (req, res) => { 
+    const { userId, userTitleId } = req.params;
+    try {
+        // Deactivate any currently active title for the user
+        const { error: deactivateError } = await supabase
+            .from('user_titles')
+            .update({ active: false })
+            .eq('user', userId)
+            .eq('active', true);
+
+        if (deactivateError) throw deactivateError;
+
+        // Activate the specified title
+        const { data, error } = await supabase
+            .from('user_titles')
+            .update({ active: true })
+            .eq('id', userTitleId)
+            .eq('user', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.status(200).json({
+            success: true,
+            title: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
 
 module.exports = {
     getAllTitles,            // GET      : /titles
@@ -745,5 +781,6 @@ module.exports = {
     getAllUserTitles,        // GET      : /titles/user/:userId
     getUserTitleById,        // GET      : /titles/user/:userId/:userTitleId
     assignTitleToUser,       // POST     : /titles/user/:userId
-    removeTitleFromUser      // DELETE   : /titles/user/:userId/:userTitleId
+    removeTitleFromUser,     // DELETE   : /titles/user/:userId/:userTitleId
+    activateTitleForUser     // POST     : /titles/user/:userId/:userTitleId/activate
 };
