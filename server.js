@@ -7,6 +7,7 @@ const groupsRoutes = require('./routes/groups');
 const stationsRoutes = require('./routes/stations');
 const titlesRoutes = require('./routes/titles');
 const usersRoutes = require('./routes/users');
+const validationRoutes = require('./routes/validation');
 const zonesRoutes = require('./routes/zones');
 
 
@@ -33,6 +34,7 @@ app.use('/api', groupsRoutes);
 app.use('/api', stationsRoutes);
 app.use('/api', titlesRoutes);
 app.use('/api', usersRoutes);
+app.use('/api', validationRoutes);
 app.use('/api', zonesRoutes);
 
 
