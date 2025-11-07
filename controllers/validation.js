@@ -6,14 +6,14 @@ const { getMessage, getMessageWithData } = require('../messages/validation');
 /*
     Validation:
     - user (PK, FK)         - int8
-    - suport (PK, FK)       - int8
+    - suport (PK, FK)       - varchar
     - timestamp (PK)        - timestamp
     - station (PK, FK)      - int8
     - enter (PK)            - boolean   [currently not used, always true]
     - user_title (PK, FK)   - int8
 
     Suports:
-    - uid (PK, UQ)          - int8
+    - uid (PK, UQ)          - varchar
     - user (FK -> users.id) - int8
     - activation            - timestamp
     

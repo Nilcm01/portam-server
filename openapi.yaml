@@ -1,0 +1,1583 @@
+openapi: 3.1.0
+info:
+  title: PORTA'M Server API
+  summary: Public transport validation system backoffice for all of its modules.
+  description: >
+    This document captures the current Express routes mounted under `/api` and the helper
+    endpoints defined in `server.js`. Each controller in `controllers/` documents the underlying
+    Supabase tables that back the module. All responses wrap the returned data in a `success` flag and either
+    a resource payload or a textual `error` field, except for the validation workflow which returns
+    localized status messages, as this information is shown to the user as a feedback while validating.
+  version: 1.0.0
+servers:
+  - url: https://portam-server.vercel.app/
+    description: Production server
+tags:
+  - name: Root
+    description: Public landing page and health checks.
+  - name: Users
+    description: Manage end users and their profile data.
+  - name: UserGroups
+    description: Manage user memberships and expiration rules per group.
+  - name: Suports
+    description: Attach or detach NFC suports (physical cards) to users.
+  - name: Groups
+    description: Define fare groups and duration rules.
+  - name: Stations
+    description: CRUD for stations and their associated zones.
+  - name: Titles
+    description: Fare product catalog definitions.
+  - name: UserTitles
+    description: Issue, manage, and activate purchased titles per user.
+  - name: Validation
+    description: Run the full validation pipeline from a suport at a station.
+  - name: Zones
+    description: Define transport fare zones.
+paths:
+  /:
+    get:
+      tags: [Root]
+      operationId: getWelcome
+      summary: Welcome banner
+      description: >
+        Returns a friendly message and current timestamp as defined in `server.js`.
+      responses:
+        '200':
+          description: API welcome payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RootResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /health:
+    get:
+      tags: [Root]
+      operationId: getHealth
+      summary: Health check
+      description: Lightweight probe that confirms the server is alive.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List users
+      description: Returns every user without the hashed password, mirroring `controllers/users.getAllUsers`.
+      responses:
+        '200':
+          description: Users available in the system
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: Get user by ID
+      responses:
+        '200':
+          description: User detail (password removed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [Users]
+      operationId: updateUser
+      summary: Update user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWriteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Users]
+      operationId: deleteUser
+      summary: Delete user
+      description: >
+        Removes the user and cleans all memberships in `user_groups`.
+      responses:
+        '200':
+          description: User removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDeleteResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users/create:
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Create user
+      description: >
+        Generates a random 12-digit `id`, inserts the user, and optionally assigns them to groups
+        (creating `user_groups` records and respecting group expiration rules).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWriteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users/{id}/groups:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [UserGroups]
+      operationId: addGroupToUser
+      summary: Add group to user
+      description: >
+        Assigns a group to a user, calculating expiration dates based on birthdate-aware special groups
+        (16, 30, 65) or the group's `expiration` days unless a manual expiration is provided.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserGroupAssignmentRequest'
+      responses:
+        '201':
+          description: Membership created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserGroupAssignmentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    get:
+      tags: [UserGroups]
+      operationId: listUserGroups
+      summary: List user groups
+      responses:
+        '200':
+          description: Groups attached to the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserGroupsResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users/{id}/groups/{groupId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/GroupId'
+    delete:
+      tags: [UserGroups]
+      operationId: removeGroupFromUser
+      summary: Remove group from user
+      responses:
+        '200':
+          description: Membership removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserGroupRemovalResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users/{id}/suports:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Suports]
+      operationId: listUserSuports
+      summary: List user suports
+      responses:
+        '200':
+          description: Suports attached to the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuportListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Suports]
+      operationId: addSuportToUser
+      summary: Attach suport to user
+      description: >
+        Creates a suport if the UID does not exist or re-assigns an unbound suport to the user,
+        stamping the activation time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuportCreateRequest'
+      responses:
+        '201':
+          description: Suport created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuportResponse'
+        '200':
+          description: Suport reassigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuportResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users/{id}/suports/{uid}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - name: uid
+        in: path
+        required: true
+        description: Unique suport identifier (varchar UID).
+        schema:
+          type: string
+    get:
+      tags: [Suports]
+      operationId: getUserSuport
+      summary: Get suport details
+      responses:
+        '200':
+          description: Suport record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuportResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Suports]
+      operationId: removeSuportFromUser
+      summary: Remove suport from user
+      responses:
+        '200':
+          description: Suport detached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuportRemovalResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/groups:
+    get:
+      tags: [Groups]
+      operationId: listGroups
+      summary: List groups
+      responses:
+        '200':
+          description: Groups catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Groups]
+      operationId: createGroup
+      summary: Create group
+      description: >
+        Inserts a new group. If no id is supplied, a random numeric id is generated after checking uniqueness.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupWriteRequest'
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/groups/{id}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [Groups]
+      operationId: getGroup
+      summary: Get group by ID
+      responses:
+        '200':
+          description: Group detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [Groups]
+      operationId: updateGroup
+      summary: Update group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupUpdateRequest'
+      responses:
+        '200':
+          description: Group updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Groups]
+      operationId: deleteGroup
+      summary: Delete group
+      responses:
+        '200':
+          description: Group deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/stations:
+    get:
+      tags: [Stations]
+      operationId: listStations
+      summary: List stations
+      description: >
+        Returns every station merged with its `station_zones` entries.
+      responses:
+        '200':
+          description: Station collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Stations]
+      operationId: createStation
+      summary: Create station
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationWriteRequest'
+      responses:
+        '201':
+          description: Station created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/stations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Numeric station identifier.
+        schema:
+          type: integer
+    get:
+      tags: [Stations]
+      operationId: getStation
+      summary: Get station
+      responses:
+        '200':
+          description: Station detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [Stations]
+      operationId: updateStation
+      summary: Update station
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationUpdateRequest'
+      responses:
+        '200':
+          description: Station updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Stations]
+      operationId: deleteStation
+      summary: Delete station
+      responses:
+        '200':
+          description: Station deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationDeleteResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/zones:
+    get:
+      tags: [Zones]
+      operationId: listZones
+      summary: List zones
+      responses:
+        '200':
+          description: Zones collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Zones]
+      operationId: createZone
+      summary: Create zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZoneWriteRequest'
+      responses:
+        '201':
+          description: Zone created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/zones/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ZoneId'
+    get:
+      tags: [Zones]
+      operationId: getZone
+      summary: Get zone
+      responses:
+        '200':
+          description: Zone detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [Zones]
+      operationId: updateZone
+      summary: Update zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZoneUpdateRequest'
+      responses:
+        '200':
+          description: Zone updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Zones]
+      operationId: deleteZone
+      summary: Delete zone
+      responses:
+        '200':
+          description: Zone deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/titles:
+    get:
+      tags: [Titles]
+      operationId: listTitles
+      summary: List titles
+      description: >
+        Fetches every fare title and enriches it with `groups` and `excluded_groups`.
+      responses:
+        '200':
+          description: Title catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TitleListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Titles]
+      operationId: createTitle
+      summary: Create title
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TitleCreateRequest'
+      responses:
+        '201':
+          description: Title created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TitleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/titles/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Title identifier.
+        schema:
+          type: integer
+    get:
+      tags: [Titles]
+      operationId: getTitle
+      summary: Get title
+      responses:
+        '200':
+          description: Title detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TitleResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [Titles]
+      operationId: updateTitle
+      summary: Update title
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TitleUpdateRequest'
+      responses:
+        '200':
+          description: Title updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TitleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Titles]
+      operationId: deleteTitle
+      summary: Delete title
+      responses:
+        '200':
+          description: Title deleted (groups cleaned)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TitleResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/titles/user/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [UserTitles]
+      operationId: listUserTitles
+      summary: List user titles
+      responses:
+        '200':
+          description: Titles owned by the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTitleListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [UserTitles]
+      operationId: assignTitleToUser
+      summary: Assign title to user
+      description: >
+        Copies the title metadata (uses, expiration, re-entry, link, zones) into a new `user_titles`
+        record and sets it inactive until explicitly activated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignTitleRequest'
+      responses:
+        '201':
+          description: User title created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignTitleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/titles/user/{userId}/{userTitleId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - name: userTitleId
+        in: path
+        required: true
+        description: Identifier of the issued title.
+        schema:
+          type: string
+    get:
+      tags: [UserTitles]
+      operationId: getUserTitle
+      summary: Get issued title
+      responses:
+        '200':
+          description: Issued title detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTitleResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [UserTitles]
+      operationId: removeUserTitle
+      summary: Remove issued title
+      responses:
+        '200':
+          description: User title deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTitleRemovalResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/titles/user/{userId}/{userTitleId}/activate:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - name: userTitleId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Identifier of the user title to activate.
+    post:
+      tags: [UserTitles]
+      operationId: activateUserTitle
+      summary: Activate issued title
+      description: >
+        Deactivates any other active titles for the user before setting the requested one to `active: true`.
+      responses:
+        '200':
+          description: Title activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTitleResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/validation:
+    post:
+      tags: [Validation]
+      operationId: validateSuport
+      summary: Validate suport at station
+      description: >
+        Runs the ten-step validation workflow described in `controllers/validation.js`, including
+        automatic initialization of the user title, zone compatibility checks, re-entry and link
+        rules, and usage decrementing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationRequest'
+      responses:
+        '200':
+          description: Validation succeeded or failed with a structured message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationMessage'
+        '400':
+          $ref: '#/components/responses/ValidationMessage'
+        '403':
+          $ref: '#/components/responses/ValidationMessage'
+        '404':
+          $ref: '#/components/responses/ValidationMessage'
+        '410':
+          $ref: '#/components/responses/ValidationMessage'
+        '429':
+          $ref: '#/components/responses/ValidationMessage'
+        '500':
+          $ref: '#/components/responses/ValidationMessage'
+components:
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: 12-digit user identifier.
+      schema:
+        type: string
+        example: '123456789012'
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      description: Group identifier.
+      schema:
+        type: string
+        example: '16'
+    ZoneId:
+      name: id
+      in: path
+      required: true
+      description: Zone identifier.
+      schema:
+        type: integer
+        example: 1
+  responses:
+    BadRequestError:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationMessage:
+      description: Validation workflow response payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationMessage'
+  schemas:
+    RootResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Welcome to PORTA'M Server API
+        timestamp:
+          type: string
+          format: date-time
+      required: [message, timestamp]
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: OK
+        timestamp:
+          type: string
+          format: date-time
+      required: [status, timestamp]
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Something went wrong
+      required: [success, error]
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Random 12-digit identifier.
+          example: '123456789012'
+        name:
+          type: string
+        surname:
+          type: string
+        gov_id:
+          type: string
+          description: Government-issued identifier.
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthdate:
+          type: string
+          format: date
+      required: [id, name, surname, gov_id, email, phone, birthdate]
+    UserListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+      required: [success, users]
+    UserResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/User'
+      required: [success, user]
+    UserCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        surname:
+          type: string
+        gov_id:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthdate:
+          type: string
+          format: date
+        groups:
+          type: array
+          description: Optional list of group IDs to insert into `user_groups`.
+          items:
+            type: string
+      required: [name, surname, gov_id, email, phone, birthdate]
+    UserUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        surname:
+          type: string
+        gov_id:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthdate:
+          type: string
+          format: date
+    UserWriteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user_id:
+          type: string
+          example: '123456789012'
+      required: [success, user_id]
+    UserDeleteResponse:
+      allOf:
+        - $ref: '#/components/schemas/UserWriteResponse'
+    UserGroupMembership:
+      type: object
+      properties:
+        user:
+          type: string
+        group:
+          type: string
+        expiration:
+          type: string
+          format: date
+          nullable: true
+      required: [user, group]
+    UserGroupAssignmentRequest:
+      type: object
+      properties:
+        groupId:
+          type: string
+          description: Target group identifier.
+        manualExpiration:
+          type: string
+          format: date
+          nullable: true
+          description: Optional custom expiration date (YYYY-MM-DD).
+      required: [groupId]
+    UserGroupAssignmentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user_id:
+          type: string
+        group_id:
+          type: string
+        expiration:
+          type: string
+          format: date
+          nullable: true
+      required: [success, user_id, group_id]
+    UserGroupRemovalResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user_id:
+          type: string
+        group_id:
+          type: string
+      required: [success, user_id, group_id]
+    UserGroupsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user_id:
+          type: string
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserGroupMembership'
+      required: [success, user_id, groups]
+    Suport:
+      type: object
+      properties:
+        uid:
+          type: string
+        user:
+          type: string
+          nullable: true
+        activation:
+          type: string
+          format: date-time
+          nullable: true
+      required: [uid]
+    SuportListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user_id:
+          type: string
+        suports:
+          type: array
+          items:
+            $ref: '#/components/schemas/Suport'
+      required: [success, user_id, suports]
+    SuportCreateRequest:
+      type: object
+      properties:
+        uid:
+          type: string
+          description: Unique suport identifier to attach.
+      required: [uid]
+    SuportResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        suport:
+          $ref: '#/components/schemas/Suport'
+      required: [success, suport]
+    SuportRemovalResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        uid:
+          type: string
+      required: [success, uid]
+    Group:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        expiration:
+          type: integer
+          nullable: true
+          description: Days until expiration; null means never expires.
+      required: [id, name, description]
+    GroupListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/Group'
+      required: [success, groups]
+    GroupResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        group:
+          $ref: '#/components/schemas/Group'
+      required: [success, group]
+    GroupWriteRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          nullable: true
+        name:
+          type: string
+        description:
+          type: string
+        expiration:
+          type: integer
+          nullable: true
+      required: [name, description]
+    GroupUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/GroupWriteRequest'
+    Station:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        name_short:
+          type: string
+        available:
+          type: boolean
+        zones:
+          type: array
+          items:
+            type: integer
+      required: [id, name, name_short, available, zones]
+    StationListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        stations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Station'
+      required: [success, stations]
+    StationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        station:
+          $ref: '#/components/schemas/Station'
+      required: [success, station]
+    StationWriteRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        name_short:
+          type: string
+        available:
+          type: boolean
+        zones:
+          type: array
+          items:
+            type: integer
+      required: [id, name, name_short, available]
+    StationUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        name_short:
+          type: string
+        available:
+          type: boolean
+        zones:
+          type: array
+          items:
+            type: integer
+    StationDeleteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: integer
+          description: ID of the deleted station.
+      required: [success, message]
+    Zone:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+      required: [id, name, description]
+    ZoneListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        zones:
+          type: array
+          items:
+            $ref: '#/components/schemas/Zone'
+      required: [success, zones]
+    ZoneResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        zone:
+          $ref: '#/components/schemas/Zone'
+      required: [success, zone]
+    ZoneWriteRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+      required: [id, name, description]
+    ZoneUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    Title:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        uses:
+          type: integer
+          nullable: true
+        expiration:
+          type: integer
+          nullable: true
+          description: Days until expiration after activation.
+        available:
+          type: string
+          format: date-time
+        unavailable:
+          type: string
+          format: date-time
+        price:
+          type: number
+          format: float
+        num_zones:
+          type: integer
+        link:
+          type: integer
+          nullable: true
+          description: Minutes the validation stays linked for free interchanges.
+        re_entry:
+          type: integer
+          nullable: true
+          description: Minutes before the same station can be validated again.
+        groups:
+          type: array
+          description: Whitelist of allowed groups.
+          items:
+            type: integer
+        excluded_groups:
+          type: array
+          description: Groups that cannot purchase this title.
+          items:
+            type: integer
+      required:
+        [id, name, description, available, unavailable, price, num_zones, groups, excluded_groups]
+    TitleListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        titles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Title'
+      required: [success, titles]
+    TitleResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        title:
+          $ref: '#/components/schemas/Title'
+      required: [success, title]
+    TitleCreateRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        uses:
+          type: integer
+          nullable: true
+        expiration:
+          type: integer
+          nullable: true
+        available:
+          type: string
+          format: date-time
+        unavailable:
+          type: string
+          format: date-time
+        price:
+          type: number
+          format: float
+        num_zones:
+          type: integer
+        link:
+          type: integer
+          nullable: true
+        re_entry:
+          type: integer
+          nullable: true
+        groups:
+          type: array
+          nullable: true
+          description: Optional whitelist of groups that may buy the title (mutually exclusive with `excluded_groups`).
+          items:
+            type: integer
+        excluded_groups:
+          type: array
+          nullable: true
+          description: Optional blacklist of groups (mutually exclusive with `groups`).
+          items:
+            type: integer
+      required: [id, name, description, available, unavailable, price, num_zones]
+    TitleUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        uses:
+          type: integer
+          nullable: true
+        expiration:
+          type: integer
+          nullable: true
+        available:
+          type: string
+          format: date-time
+        unavailable:
+          type: string
+          format: date-time
+        price:
+          type: number
+          format: float
+        num_zones:
+          type: integer
+        link:
+          type: integer
+          nullable: true
+        re_entry:
+          type: integer
+          nullable: true
+        groups:
+          type: array
+          items:
+            type: integer
+        excluded_groups:
+          type: array
+          items:
+            type: integer
+    UserTitle:
+      type: object
+      properties:
+        id:
+          type: string
+        user:
+          type: string
+        title:
+          type: integer
+        uses_left:
+          type: integer
+          nullable: true
+        first_use:
+          type: string
+          format: date-time
+          nullable: true
+        expiration:
+          type: string
+          format: date-time
+          nullable: true
+        re_entry:
+          type: integer
+          nullable: true
+        zone_origin:
+          type: integer
+          nullable: true
+        active:
+          type: boolean
+        link:
+          type: integer
+          nullable: true
+        num_zones:
+          type: integer
+      required: [id, user, title, active]
+    UserTitleListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        titles:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserTitle'
+      required: [success, titles]
+    UserTitleResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        title:
+          $ref: '#/components/schemas/UserTitle'
+      required: [success, title]
+    AssignTitleRequest:
+      type: object
+      properties:
+        title:
+          type: integer
+          description: ID of the catalog title to assign.
+      required: [title]
+    AssignTitleResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: object
+          description: Snapshot of the inserted `user_titles` record.
+          properties:
+            id:
+              type: string
+            user:
+              type: string
+            title:
+              type: integer
+            uses_left:
+              type: integer
+              nullable: true
+            expiration:
+              type: string
+              format: date
+              nullable: true
+            re_entry:
+              type: integer
+              nullable: true
+            active:
+              type: boolean
+            link:
+              type: integer
+              nullable: true
+            num_zones:
+              type: integer
+      required: [success, message]
+    UserTitleRemovalResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        title:
+          $ref: '#/components/schemas/UserTitle'
+      required: [success, title]
+    ValidationRequest:
+      type: object
+      properties:
+        suport:
+          type: string
+          description: Suport UID attempting to validate.
+        station:
+          type: integer
+          description: Station identifier performing the validation.
+      required: [suport, station]
+    LocalizedMessage:
+      type: object
+      properties:
+        ca:
+          type: string
+        en:
+          type: string
+        es:
+          type: string
+      required: [ca, en, es]
+    ValidationMessage:
+      type: object
+      properties:
+        success:
+          type: boolean
+        code:
+          type: integer
+        status:
+          type: string
+          example: VALIDATION_SUCCESS
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        validation_id:
+          type: integer
+          description: Present when the validation record is inserted.
+        timestamp:
+          type: string
+          format: date-time
+        station_id:
+          type: integer
+        user_title_id:
+          type: string
+        uses_left:
+          type: integer
+          nullable: true
+        expiration:
+          type: string
+          format: date-time
+          nullable: true
+        link:
+          type: boolean
+          description: Indicates whether the validation was free because it was within link time.
+      required: [success, code, status, msg]

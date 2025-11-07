@@ -24,7 +24,7 @@ const supabase = require('../config/supabase');
     - expiration        - int8 (days) (null = never expires)
 
     Suports:
-    - uid (PK, UQ)          - int8
+    - uid (PK, UQ)          - varchar
     - user (FK -> users.id) - int8
     - activation            - timestamp
 */
@@ -442,7 +442,7 @@ const getUserSuport = async (req, res) => {
 };
 
 // Add suport to user > POST: /users/:id/suports
-// { "uid": 123456789012 }
+// { "uid": "123456789012" }
 const addSuportToUser = async (req, res) => {
     const { id } = req.params;
     const { uid } = req.body;
