@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 // Import routes
+const authRoutes = require('./routes/auth');
 const groupsRoutes = require('./routes/groups');
 const stationsRoutes = require('./routes/stations');
 const titlesRoutes = require('./routes/titles');
@@ -30,6 +31,7 @@ app.get('/', (req, res) => {
 
 
 // Use routes
+app.use('/api', authRoutes);
 app.use('/api', groupsRoutes);
 app.use('/api', stationsRoutes);
 app.use('/api', titlesRoutes);
@@ -65,10 +67,10 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-/*app.listen(PORT, () => {
+/**app.listen(PORT, () => {
     console.log(`[P'M SERVER] Server is running on port ${PORT}`);
     console.log(`[P'M SERVER] Health check available at http://localhost:${PORT}/health`);
     console.log(`[P'M SERVER] API endpoints available at http://localhost:${PORT}/api/`);
-});*/
+});/**/
 
 module.exports = app;
