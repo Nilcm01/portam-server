@@ -685,13 +685,10 @@ const addReceiptToUser = async (req, res) => {
             if (!existingReceipt) break; // Unique ID found
         } while (true);
 
-        // Date
-        const now = new Date();
-        const nowStr = "" + now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0') + " " + String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0');
-
+        // Let PostgreSQL handle the timestamp with now() to use the database timezone
         const { data: newReceipt, error: newError } = await supabase
             .from('receipts')
-            .insert([{ id: receiptId, user: id, timestamp: nowStr, amount }])
+            .insert([{ id: receiptId, user: id, amount }])
             .select('*')
             .single();
 
