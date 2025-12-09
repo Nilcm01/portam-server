@@ -9,6 +9,7 @@ const {
     addGroupToUser,
     removeGroupFromUser,
     listUserGroups,
+    listAvailableGroups,
     listUserSuports,
     getUserSuport,
     addSuportToUser,
@@ -24,6 +25,7 @@ router.delete('/users/:id', deleteUser);
 router.post('/users/:id/groups', addGroupToUser);
 router.delete('/users/:id/groups/:groupId', removeGroupFromUser);
 router.get('/users/:id/groups', listUserGroups);
+router.get('/users/:id/groups/available', listAvailableGroups);
 router.get('/users/:id/suports', listUserSuports);
 router.get('/users/:id/suports/:uid', getUserSuport);
 router.post('/users/:id/suports', addSuportToUser);

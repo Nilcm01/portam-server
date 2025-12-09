@@ -27,6 +27,17 @@ const messages = {
         }
     },
 
+    HISTORY_FETCH_SUCCESS: {
+        success: true,
+        code: 200,
+        status: 'HISTORY_FETCH_SUCCESS',
+        msg: {
+            ca: 'Historial de validacions obtingut correctament',
+            en: 'Validation history fetched successfully',
+            es: 'Historial de validaciones obtenido correctamente'
+        }
+    },
+
     // Error messages (4xx - Client errors)
     ERROR_SUPORT_NOT_FOUND: {
         success: false,

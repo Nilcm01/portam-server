@@ -426,8 +426,92 @@ const validation = async (req, res) => {
     }
 };
 
+// History of validations for a user > GET: /validation/history/:userId
+/*
+    Validation return format:
+    {
+        id: <validation_id>,        -> Add validation id from 0 to N, being 0 the oldest
+        timestamp: <timestamp>,     -> Directly from validation record
+        station: <station_name>,    -> Fetch station name from stations table using station (id)
+        suport: <uid>,              -> Directly from validation record
+        title: <user_title_name>    -> Fetch title name from titles using user_title (id)
+    }
+*/
+const history = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Fetch validation history for the user, newest first
+        const { data: validationHistory, error: historyError } = await supabase
+            .from('validation')
+            .select('*')
+            .eq('user', userId)
+            .order('timestamp', { ascending: false });
+
+        if (historyError) throw historyError;
+
+        // Enrich validation records with station names and title names
+        let richtedHistory = [];
+        let id = validationHistory.length;
+        for (let validation of validationHistory) {
+            // Fetch station name
+            const { data: stationData, error: stationError } = await supabase
+                .from('stations')
+                .select('name')
+                .eq('id', validation.station)
+                .single();
+
+            if (stationError) throw stationError;
+
+            // Fetch title name
+            const { data: userTitleData, error: userTitleError } = await supabase
+                .from('user_titles')
+                .select('title')
+                .eq('id', validation.user_title)
+                .single();
+
+            if (userTitleError) throw userTitleError;
+
+            const { data: titleData, error: titleError } = await supabase
+                .from('titles')
+                .select('name')
+                .eq('id', userTitleData.title)
+                .single();
+
+            if (titleError) throw titleError;
+
+            richtedHistory.push({
+                id: id,
+                timestamp: validation.timestamp,
+                station: stationData.name,
+                suport: validation.suport,
+                title: titleData.name
+            });
+
+            id--;
+        }
+
+        // Return history
+
+        const message = getMessageWithData('HISTORY_FETCH_SUCCESS', {
+            user_id: userId,
+            validations: richtedHistory
+        });
+
+        return res.status(message.code).json(message);
+
+    } catch (error) {
+        console.error('History fetch error:', error);
+        const message = getMessageWithData('ERROR_INTERNAL_SERVER', {
+            internal: `Unexpected error during history fetch: ${error.message}`
+        });
+        return res.status(message.code).json(message);
+    }
+};
+
 
 
 module.exports = {
-    validation          // POST      : /validation
+    validation,         // POST      : /validation
+    history             // GET       : /validation/history/:userId
 };

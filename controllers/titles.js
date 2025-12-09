@@ -40,6 +40,27 @@ const supabase = require('../config/supabase');
     - user_title (PK, FK)   - int8
     - zone (PK, FK)         - int8
 
+    Users:
+    - id (PK, UQ)   - int8
+    - name          - varchar
+    - surname       - varchar
+    - gov_id        - varchar
+    - email (UQ)    - varchar
+    - phone         - varchar
+    - birthdate     - date
+    - password      - varchar (hashed)
+
+    User_groups:
+    - user (PK, FK -> users.id)     - int8
+    - group (PK, FK -> groups.id)   - int8
+    - expiration                    - date
+
+    Groups:
+    - id (PK, UQ)       - int8
+    - name (UQ)         - varchar
+    - description       - text
+    - expiration        - int8 (days) (null = never expires)
+
 
     -- FORMATS --
 
@@ -234,7 +255,7 @@ const createTitle = async (req, res) => {
                     .eq('id', groupId)
                     .single();
                 if (groupError) {
-                    return res.status(400).json({       
+                    return res.status(400).json({
                         success: false,
                         error: `Group with id ${groupId} does not exist.`
                     });
@@ -543,6 +564,20 @@ const getAllUserTitles = async (req, res) => {
 
         if (error) throw error;
 
+        // For each user_title, get the title's name and description
+        for (let userTitle of data) {
+            const { data: titleData, error: titleError } = await supabase
+                .from('titles')
+                .select('name, description')
+                .eq('id', userTitle.title)
+                .single();
+
+            if (titleError) throw titleError;
+
+            userTitle.title_name = titleData.name;
+            userTitle.title_description = titleData.description;
+        }
+
         res.status(200).json({
             success: true,
             titles: data
@@ -580,6 +615,104 @@ const getUserTitleById = async (req, res) => {
         });
     }
 };
+
+// List titles available for user to purchase > GET: /titles/user/:userId/available
+const listTitlesForUser = async (req, res) => {
+    const { userId } = req.params;
+    try {
+        // Fetch user data to verify user exists
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', userId)
+            .single();
+        if (userError || !userData) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+        
+        // Fetch all groups the user belongs to
+        const { data: userGroupsData, error: userGroupsError } = await supabase
+            .from('user_groups')
+            .select('group')
+            .eq('user', userId);
+        if (userGroupsError) throw userGroupsError;
+
+        // Extract user's group IDs into an array
+        const userGroupIds = userGroupsData.map(ug => ug.group);
+
+        // Fetch all titles
+        const { data: allTitles, error: titlesError } = await supabase
+            .from('titles')
+            .select('*');
+        if (titlesError) throw titlesError;
+        
+        // Filter titles based on user's groups and title availability
+        const availableTitles = [];
+        const currentTime = new Date();
+        
+        for (let title of allTitles) {
+            // Check availability dates
+            const availableDate = new Date(title.available);
+            const unavailableDate = new Date(title.unavailable);
+            if (currentTime < availableDate || currentTime > unavailableDate) {
+                continue; // Title not currently available
+            }
+            
+            // Check group restrictions
+            const { data: titleGroups, error: titleGroupsError } = await supabase
+                .from('title_groups')
+                .select('group')
+                .eq('title', title.id);
+            if (titleGroupsError) throw titleGroupsError;
+            
+            const { data: excludedGroups, error: excludedGroupsError } = await supabase
+                .from('title_groups_excluded')
+                .select('group')
+                .eq('title', title.id);
+            if (excludedGroupsError) throw excludedGroupsError;
+            
+            const allowedGroupIds = titleGroups.map(g => g.group);
+            const excludedGroupIds = excludedGroups.map(g => g.group);
+            
+            // Determine if user can access the title
+            let canAccess = true;
+            
+            // If there are specific allowed groups, check if user belongs to at least one
+            if (allowedGroupIds.length > 0) {
+                const hasAllowedGroup = userGroupIds.some(userGroupId => allowedGroupIds.includes(userGroupId));
+                if (!hasAllowedGroup) {
+                    canAccess = false; // User doesn't belong to any of the allowed groups
+                }
+            }
+            
+            // If there are excluded groups, check if user belongs to any of them
+            if (excludedGroupIds.length > 0) {
+                const hasExcludedGroup = userGroupIds.some(userGroupId => excludedGroupIds.includes(userGroupId));
+                if (hasExcludedGroup) {
+                    canAccess = false; // User belongs to at least one excluded group
+                }
+            }
+            
+            if (canAccess) {
+                availableTitles.push(title);
+            }
+        }
+        
+        res.status(200).json({
+            success: true,
+            titles: availableTitles
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+        console.error(error);
+    }
+}
 
 // Assign title to user > POST: /titles/user/:userId
 /*
@@ -733,7 +866,7 @@ const removeTitleFromUser = async (req, res) => {
 
 // Activate title from user > POST: /titles/user/:userId/:userTitleId/activate
 // Every user can only have one active title at a time
-const activateTitleForUser = async (req, res) => { 
+const activateTitleForUser = async (req, res) => {
     const { userId, userTitleId } = req.params;
     try {
         // Deactivate any currently active title for the user
@@ -777,6 +910,7 @@ module.exports = {
 
     getAllUserTitles,        // GET      : /titles/user/:userId
     getUserTitleById,        // GET      : /titles/user/:userId/:userTitleId
+    listTitlesForUser,       // GET      : /titles/user/:userId/available
     assignTitleToUser,       // POST     : /titles/user/:userId
     removeTitleFromUser,     // DELETE   : /titles/user/:userId/:userTitleId
     activateTitleForUser     // POST     : /titles/user/:userId/:userTitleId/activate

@@ -1,5 +1,7 @@
 const e = require('express');
 const supabase = require('../config/supabase');
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 
 /*
     Users:
@@ -92,16 +94,20 @@ const getUser = async (req, res) => {
         "gov_id": "12345678A",
         "email": "john.doe@example.com",
         "phone": "+123456789",
-        "birthdate": "1990-01-01"
+        "birthdate": "1990-01-01",
+        "password": "newpassword123"  // Optional
     }
 */
 const updateUser = async (req, res) => {
     const { id } = req.params;
-    const { name, surname, gov_id, email, phone, birthdate } = req.body;
+    const { name, surname, gov_id, email, phone, birthdate, password } = req.body;
     try {
+        // If password is provided, hash it
+        const passwordHash = await bcrypt.hash(password, 12);
+
         const { data: userData, error: userError } = await supabase
             .from('users')
-            .update({ name, surname, gov_id, email, phone, birthdate })
+            .update({ name, surname, gov_id, email, phone, birthdate, password: passwordHash })
             .eq('id', id)
             .select('*')
             .single();
@@ -129,11 +135,12 @@ const updateUser = async (req, res) => {
         "email": "john.doe@example.com",
         "phone": "+123456789",
         "birthdate": "1990-01-01",
-        "groups": [1, 2, 3]  // Optional array of group IDs to assign the user to
+        "groups": [1, 2, 3]  // Optional array of group IDs to assign the user to,
+        "password": "userpassword123"  // Optional
     }
 */
 const createUser = async (req, res) => {
-    const { name, surname, gov_id, email, phone, birthdate, groups } = req.body;
+    const { name, surname, gov_id, email, phone, birthdate, groups, password } = req.body;
     try {
         // Generate user ID
         // 12 digit random number
@@ -152,10 +159,13 @@ const createUser = async (req, res) => {
             if (!existingUser) break; // Unique ID found
         } while (true);
 
+        // If password is provided, hash it
+        const passwordHash = await bcrypt.hash(password, 12);
+
         // Insert user
         const { data: userData, error: userError } = await supabase
             .from('users')
-            .insert([{ id: userId, name, surname, gov_id, email, phone, birthdate }])
+            .insert([{ id: userId, name, surname, gov_id, email, phone, birthdate, password: passwordHash }])
             .select('*')
             .single();
 
@@ -388,6 +398,67 @@ const listUserGroups = async (req, res) => {
     }
 };
 
+// List available groups for user (not assigned) > GET: /users/:id/groups/available
+const listAvailableGroups = async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Get groups already assigned to user
+        const { data: assignedGroupsData, error: assignedGroupsError } = await supabase
+            .from('user_groups')
+            .select('group')
+            .eq('user', id);
+
+        if (assignedGroupsError) throw assignedGroupsError;
+
+        const assignedGroupIds = assignedGroupsData.map(ug => ug.group);
+
+        // Get groups not assigned to user
+        let query = supabase
+            .from('groups')
+            .select('*');
+
+        if (assignedGroupIds.length > 0) {
+            query = query.not('id', 'in', `(${assignedGroupIds.join(',')})`);
+        }
+
+        const { data: availableGroupsData, error: availableGroupsError } = await query;
+
+        if (availableGroupsError) throw availableGroupsError;
+
+        // If user has age-based groups, filter them accordingly
+        // Also filter out internal or debug groups (id >= 999)
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('birthdate')
+            .eq('id', id)
+            .single();
+
+        if (userError) throw userError;
+
+        const birthdate = new Date(userData.birthdate);
+        const userAge = yearsOldToday(birthdate);
+
+        const filteredAvailableGroups = availableGroupsData.filter(group => {
+            if (group.id === 16 && userAge >= 16) return false;
+            if (group.id === 30 && userAge >= 30) return false;
+            if (group.id === 65 && userAge < 65) return false;
+            if (group.id >= 999) return false; // Internal/debug groups
+            return true;
+        });
+
+        res.status(200).json({
+            success: true,
+            user_id: id,
+            groups: filteredAvailableGroups
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
 
 //// SUPORT FUNCTIONS
 
@@ -442,10 +513,15 @@ const getUserSuport = async (req, res) => {
 };
 
 // Add suport to user > POST: /users/:id/suports
-// { "uid": "123456789012" }
+/* 
+    { 
+        "uid": "123456789012",
+        "info": "Optional additional info"
+    }
+*/
 const addSuportToUser = async (req, res) => {
     const { id } = req.params;
-    const { uid } = req.body;
+    const { uid, info } = req.body;
 
     /*
         - Check if suport with uid already exists
@@ -475,7 +551,7 @@ const addSuportToUser = async (req, res) => {
             // Create new suport
             const { data: newSuport, error: newError } = await supabase
                 .from('suports')
-                .insert([{ uid, user: id, activation: nowStr }])
+                .insert([{ uid, user: id, activation: nowStr, info }])
                 .select('*')
                 .single();
 
@@ -583,6 +659,7 @@ module.exports = {
     addGroupToUser,         // POST     : /users/:id/groups
     removeGroupFromUser,    // DELETE   : /users/:id/groups/:groupId
     listUserGroups,         // GET      : /users/:id/groups
+    listAvailableGroups,    // GET      : /users/:id/groups/available
     listUserSuports,        // GET      : /users/:id/suports
     getUserSuport,          // GET      : /users/:id/suports/:uid
     addSuportToUser,        // POST     : /users/:id/suports

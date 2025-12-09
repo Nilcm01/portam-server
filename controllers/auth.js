@@ -23,6 +23,17 @@ import crypto from 'crypto';
     - phone         - varchar
     - birthdate     - date
     - password      - varchar (hashed)
+
+    User_groups:
+    - user (PK, FK -> users.id)     - int8
+    - group (PK, FK -> groups.id)   - int8
+    - expiration                    - date
+
+    Groups:
+    - id (PK, UQ)       - int8
+    - name (UQ)         - varchar
+    - description       - text
+    - expiration        - int8 (days) (null = never expires)
 */
 
 
@@ -163,6 +174,42 @@ const register = async (req, res) => {
             .single();
 
         if (insertError) throw insertError;
+
+        // Add the age groups if applicable
+        // 16: under 16 years old
+        // 30: 16 to under 30 years old
+        // 65: 65 and over years old
+        // Expiration date is the day before the birthday when the user turns over the age limit of each group
+        
+        const age = yearsOldToday(new Date(birthdate));
+        const ageGroupIds = [];
+        let expirationDate = null;
+        if (age < 16) {
+            ageGroupIds.push(16);
+            const dayBefore = dayBeforeSpecificBirthday(new Date(birthdate), 16);
+            expirationDate = "" + dayBefore.getFullYear() + "-" + String(dayBefore.getMonth() + 1).padStart(2, '0') + "-" + String(dayBefore.getDate()).padStart(2, '0');
+        }
+        if (age >= 16 && age < 30) {
+            ageGroupIds.push(30);
+            const dayBefore = dayBeforeSpecificBirthday(new Date(birthdate), 30);
+            expirationDate = "" + dayBefore.getFullYear() + "-" + String(dayBefore.getMonth() + 1).padStart(2, '0') + "-" + String(dayBefore.getDate()).padStart(2, '0');
+        }
+        if (age >= 65) {
+            ageGroupIds.push(65);
+            // No expiration for 65+ group
+        }
+
+        for (const groupId of ageGroupIds) {
+            const { error: groupInsertError } = await supabase
+                .from('user_groups')
+                .insert({
+                    user: newUser.id,
+                    group: groupId,
+                    expiration: groupId === 65 ? null : expirationDate
+                });
+            if (groupInsertError) throw groupInsertError;
+        }
+
 
         //// 5. Create new session
 
@@ -505,6 +552,10 @@ const checkSession = async (req, res) => {
     }
 };
 
+
+//// UTILITY FUNCTIONS
+
+
 function getTimestampFromDate(date) {
     return date.getFullYear() + '-' +
                 String(date.getMonth() + 1).padStart(2, '0') + '-' +
@@ -512,7 +563,28 @@ function getTimestampFromDate(date) {
                 String(date.getHours()).padStart(2, '0') + ':' +
                 String(date.getMinutes()).padStart(2, '0') + ':' +
                 String(date.getSeconds()).padStart(2, '0');
-}
+};
+
+// Calculate the age on this exact day given a birthdate
+function yearsOldToday(birthdate) {
+    const now = new Date();
+    let age = now.getFullYear() - birthdate.getFullYear();
+    const monthDiff = now.getMonth() - birthdate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthdate.getDate())) {
+        age--;
+    }
+    return age;
+};
+
+// Calculate the date before the birthday on which a certain years old will be reached
+function dayBeforeSpecificBirthday(birthdate, yearsOld) {
+    return new Date(
+        birthdate.getFullYear() + yearsOld,
+        birthdate.getMonth(),
+        birthdate.getDate() - 1
+    );
+};
+
 
 export {
     register,
