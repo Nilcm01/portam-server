@@ -13,7 +13,9 @@ const {
     listUserSuports,
     getUserSuport,
     addSuportToUser,
-    removeSuportFromUser
+    removeSuportFromUser,
+    listReceiptsForUser,
+    addReceiptToUser
 } = require('../controllers/users');
 
 // Routes for user management
@@ -30,5 +32,7 @@ router.get('/users/:id/suports', listUserSuports);
 router.get('/users/:id/suports/:uid', getUserSuport);
 router.post('/users/:id/suports', addSuportToUser);
 router.delete('/users/:id/suports/:uid', removeSuportFromUser);
+router.get('/users/:id/receipts', listReceiptsForUser);
+router.post('/users/:id/receipts', addReceiptToUser);
 
 module.exports = router;

@@ -15,6 +15,7 @@ const zonesRoutes = require('./routes/zones');
 // Initialize Express app
 const app = express();
 //const PORT = process.env.PORT || 3000;
+const VERSION = '1.1.0';
 
 // Middleware
 app.use(cors());
@@ -22,10 +23,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Test route
+const now = new Date();
+const dateISO = now.getFullYear() + '-' +
+    String(now.getMonth() + 1).padStart(2, '0') + '-' +
+    String(now.getDate()).padStart(2, '0') + 'T' +
+    String(now.getHours()).padStart(2, '0') + ':' +
+    String(now.getMinutes()).padStart(2, '0') + ':' +
+    String(now.getSeconds()).padStart(2, '0');
 app.get('/', (req, res) => {
     res.json({
         message: 'Welcome to PORTA\'M Server API',
-        timestamp: new Date().toISOString()
+        version: VERSION,
+        timestamp: dateISO
     });
 });
 

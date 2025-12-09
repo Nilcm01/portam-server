@@ -29,6 +29,12 @@ const crypto = require('crypto');
     - uid (PK, UQ)          - varchar
     - user (FK -> users.id) - int8
     - activation            - timestamp
+
+    Receipts:
+    - id (PK)               - varchar
+    - timestamp             - timestamp
+    - user (FK -> users.id) - int8
+    - amount                - float4
 */
 
 
@@ -515,8 +521,7 @@ const getUserSuport = async (req, res) => {
 // Add suport to user > POST: /users/:id/suports
 /* 
     { 
-        "uid": "123456789012",
-        "info": "Optional additional info"
+        
     }
 */
 const addSuportToUser = async (req, res) => {
@@ -626,6 +631,85 @@ const removeSuportFromUser = async (req, res) => {
 };
 
 
+//// RECEIPT FUNCTIONS
+
+// List receipts for user > GET: /users/:id/receipts
+const listReceiptsForUser = async (req, res) => {
+    const { id } = req.params;
+    try {
+        // List receipts from receipts, ordered by timestamp with most recent first
+        const { data, error } = await supabase
+            .from('receipts')
+            .select('*')
+            .eq('user', id)
+            .order('timestamp', { ascending: false });
+
+        if (error) throw error;
+
+        res.status(200).json({
+            success: true,
+            user_id: id,
+            receipts: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// Add receipt to user > POST: /users/:id/receipts
+/* 
+    { 
+        "amount": 12.34
+    }
+*/
+const addReceiptToUser = async (req, res) => {
+    const { id } = req.params;
+    const { amount } = req.body;
+
+    try {
+        // Generate receipt ID and check uniqueness
+        let receiptId = '';
+        do {
+            receiptId = crypto.randomBytes(8).toString('hex'); // 16 character hex string
+            const { data: existingReceipt, error: existingError } = await supabase
+                .from('receipts')
+                .select('id')
+                .eq('id', receiptId)
+                .single();
+            if (existingError && existingError.code !== 'PGRST116') {
+                throw existingError;
+            }
+            if (!existingReceipt) break; // Unique ID found
+        } while (true);
+
+        // Date
+        const now = new Date();
+        const nowStr = "" + now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0') + " " + String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0');
+
+        const { data: newReceipt, error: newError } = await supabase
+            .from('receipts')
+            .insert([{ id: receiptId, user: id, timestamp: nowStr, amount }])
+            .select('*')
+            .single();
+
+        if (newError) throw newError;
+
+        res.status(201).json({
+            success: true,
+            receipt: newReceipt
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+
 //// LOCAL FUNCTIONS
 
 
@@ -663,5 +747,7 @@ module.exports = {
     listUserSuports,        // GET      : /users/:id/suports
     getUserSuport,          // GET      : /users/:id/suports/:uid
     addSuportToUser,        // POST     : /users/:id/suports
-    removeSuportFromUser    // DELETE   : /users/:id/suports/:uid
+    removeSuportFromUser,   // DELETE   : /users/:id/suports/:uid
+    listReceiptsForUser,    // GET      : /users/:id/receipts
+    addReceiptToUser        // POST     : /users/:id/receipts
 };
