@@ -8,6 +8,7 @@ const {
     deleteTitle,             // DELETE   : /titles/:id
 
     getAllUserTitles,        // GET      : /titles/user/:userId
+    getActiveUserTitle,      // GET      : /titles/user/:userId/active
     getUserTitleById,        // GET      : /titles/user/:userId/:userTitleId
     listTitlesForUser,       // GET      : /titles/user/:userId/available
     assignTitleToUser,       // POST     : /titles/user/:userId
@@ -24,9 +25,10 @@ router.delete('/titles/:id', deleteTitle);
 
 // Routes for user titles management
 router.get('/titles/user/:userId', getAllUserTitles);
+router.get('/titles/user/:userId/active', getActiveUserTitle);
 router.get('/titles/user/:userId/available', listTitlesForUser);
-router.get('/titles/user/:userId/:userTitleId', getUserTitleById);
 router.post('/titles/user/:userId', assignTitleToUser);
+router.get('/titles/user/:userId/:userTitleId', getUserTitleById);
 router.delete('/titles/user/:userId/:userTitleId', removeTitleFromUser);
 router.post('/titles/user/:userId/:userTitleId/activate', activateTitleForUser);
 

@@ -590,6 +590,40 @@ const getAllUserTitles = async (req, res) => {
     }
 };
 
+// Get the active user title > GET: /titles/user/:userId/active
+const getActiveUserTitle = async (req, res) => {
+    const { userId } = req.params;
+    
+    try {
+        // Fetch active user title for the user
+        const { data, error } = await supabase
+            .from('user_titles')
+            .select('*')
+            .eq('user', userId)
+            .eq('active', true)
+            .single();
+        if (error) {
+            if (error.code === 'PGRST116') {
+                return res.status(404).json({
+                    success: false,
+                    error: 'No active title found for this user.'
+                });
+            } else {
+                throw error;
+            }
+        }
+        res.status(200).json({
+            success: true,
+            title: data
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+}
+
 // Get user title by id > GET: /titles/user/:userId/:userTitleId
 const getUserTitleById = async (req, res) => {
     const { userId, userTitleId } = req.params;
@@ -909,6 +943,7 @@ module.exports = {
     deleteTitle,             // DELETE   : /titles/:id
 
     getAllUserTitles,        // GET      : /titles/user/:userId
+    getActiveUserTitle,      // GET      : /titles/user/:userId/active
     getUserTitleById,        // GET      : /titles/user/:userId/:userTitleId
     listTitlesForUser,       // GET      : /titles/user/:userId/available
     assignTitleToUser,       // POST     : /titles/user/:userId
