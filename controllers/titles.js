@@ -612,6 +612,19 @@ const getActiveUserTitle = async (req, res) => {
                 throw error;
             }
         }
+
+        // Fetch the title's name and description
+        const { data: titleData, error: titleError } = await supabase
+            .from('titles')
+            .select('name, description')
+            .eq('id', data.title)
+            .single();
+
+        if (titleError) throw titleError;
+
+        data.title_name = titleData.name;
+        data.title_description = titleData.description;
+
         res.status(200).json({
             success: true,
             title: data
