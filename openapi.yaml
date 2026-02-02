@@ -6,21 +6,25 @@ info:
     This document captures the current Express routes mounted under `/api` and the helper
     endpoints defined in `server.js`. Each controller in `controllers/` documents the underlying
     Supabase tables that back the module. All responses wrap the returned data in a `success` flag and either
-    a resource payload or a textual `error` field, except for the validation workflow which returns
-    localized status messages, as this information is shown to the user as a feedback while validating.
-  version: 1.0.0
+    a resource payload or a textual `error` field, except for auth and validation workflows which return
+    localized status messages for direct user feedback.
+  version: 1.1.0
 servers:
   - url: https://portam-server.vercel.app/
     description: Production server
 tags:
   - name: Root
     description: Public landing page and health checks.
+  - name: Auth
+    description: User registration, login, and session validation.
   - name: Users
     description: Manage end users and their profile data.
   - name: UserGroups
     description: Manage user memberships and expiration rules per group.
   - name: Suports
     description: Attach or detach NFC suports (physical cards) to users.
+  - name: Receipts
+    description: Track receipts linked to user purchases.
   - name: Groups
     description: Define fare groups and duration rules.
   - name: Stations
@@ -31,6 +35,8 @@ tags:
     description: Issue, manage, and activate purchased titles per user.
   - name: Validation
     description: Run the full validation pipeline from a suport at a station.
+  - name: Requests
+    description: User group access requests and evaluations.
   - name: Zones
     description: Define transport fare zones.
 paths:
@@ -65,6 +71,75 @@ paths:
                 $ref: '#/components/schemas/HealthResponse'
         '500':
           $ref: '#/components/responses/ServerError'
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerUser
+      summary: Register user
+      description: >
+        Creates a new user, assigns age-based groups (16/30/65) when applicable,
+        and opens a device session that returns an access token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRegisterRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/AuthRegisterSuccess'
+        '400':
+          $ref: '#/components/responses/AuthRegisterBadRequest'
+        '409':
+          $ref: '#/components/responses/AuthRegisterConflict'
+        '500':
+          $ref: '#/components/responses/AuthServerError'
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginUser
+      summary: Login user
+      description: >
+        Validates credentials and issues a new session token for the supplied device.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuthLoginSuccess'
+        '400':
+          $ref: '#/components/responses/AuthLoginBadRequest'
+        '401':
+          $ref: '#/components/responses/AuthLoginUnauthorized'
+        '500':
+          $ref: '#/components/responses/AuthServerError'
+  /api/auth/check-session:
+    post:
+      tags: [Auth]
+      operationId: checkSession
+      summary: Check session validity
+      description: >
+        Confirms whether a [user, device] session token is valid and extends the expiration on success.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthCheckSessionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuthSessionValid'
+        '400':
+          $ref: '#/components/responses/AuthSessionBadRequest'
+        '401':
+          $ref: '#/components/responses/AuthSessionUnauthorized'
+        '404':
+          $ref: '#/components/responses/AuthSessionNotFound'
+        '500':
+          $ref: '#/components/responses/AuthServerError'
   /api/users:
     get:
       tags: [Users]
@@ -102,6 +177,7 @@ paths:
       tags: [Users]
       operationId: updateUser
       summary: Update user profile
+      description: Updates user fields and hashes the provided password.
       requestBody:
         required: true
         content:
@@ -145,7 +221,8 @@ paths:
       summary: Create user
       description: >
         Generates a random 12-digit `id`, inserts the user, and optionally assigns them to groups
-        (creating `user_groups` records and respecting group expiration rules).
+        (creating `user_groups` records and respecting group expiration rules). A password is hashed
+        before insertion.
       requestBody:
         required: true
         content:
@@ -203,6 +280,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserGroupsResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/users/{id}/groups/available:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [UserGroups]
+      operationId: listAvailableGroups
+      summary: List available groups for user
+      description: >
+        Returns groups the user is not assigned to, filtered by age-based rules (16/30/65)
+        and excluding internal/debug groups (id >= 999).
+      responses:
+        '200':
+          description: Available groups for assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAvailableGroupsResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
         '500':
           $ref: '#/components/responses/ServerError'
   /api/users/{id}/groups/{groupId}:
@@ -309,6 +407,48 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '500':
           $ref: '#/components/responses/ServerError'
+  /api/users/{id}/receipts:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Receipts]
+      operationId: listReceiptsForUser
+      summary: List receipts for user
+      description: Returns receipts ordered by most recent timestamp.
+      responses:
+        '200':
+          description: Receipts for the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptListResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Receipts]
+      operationId: addReceiptToUser
+      summary: Add receipt to user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptCreateRequest'
+      responses:
+        '201':
+          description: Receipt created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /api/groups:
     get:
       tags: [Groups]
@@ -398,6 +538,111 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GroupResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/requests:
+    get:
+      tags: [Requests]
+      operationId: listRequests
+      summary: List requests
+      responses:
+        '200':
+          description: Group access requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestListResponse'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Requests]
+      operationId: createRequest
+      summary: Create request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestCreateRequest'
+      responses:
+        '201':
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    get:
+      tags: [Requests]
+      operationId: getRequest
+      summary: Get request by ID
+      responses:
+        '200':
+          description: Request detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/requests/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    put:
+      tags: [Requests]
+      operationId: approveRequest
+      summary: Approve request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestDecisionRequest'
+      responses:
+        '200':
+          description: Request approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/requests/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    put:
+      tags: [Requests]
+      operationId: rejectRequest
+      summary: Reject request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestDecisionRequest'
+      responses:
+        '200':
+          description: Request rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
         '404':
           $ref: '#/components/responses/NotFoundError'
         '500':
@@ -691,11 +936,13 @@ paths:
           $ref: '#/components/responses/ServerError'
   /api/titles/user/{userId}:
     parameters:
-      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/UserIdParam'
     get:
       tags: [UserTitles]
       operationId: listUserTitles
       summary: List user titles
+      description: >
+        Returns issued titles and enriches each entry with the catalog title name and description.
       responses:
         '200':
           description: Titles owned by the user
@@ -731,9 +978,47 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '500':
           $ref: '#/components/responses/ServerError'
+  /api/titles/user/{userId}/active:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+    get:
+      tags: [UserTitles]
+      operationId: getActiveUserTitle
+      summary: Get active user title
+      responses:
+        '200':
+          description: Active title for the user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserTitleResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/titles/user/{userId}/available:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+    get:
+      tags: [UserTitles]
+      operationId: listAvailableTitlesForUser
+      summary: List titles available for user
+      description: >
+        Returns catalog titles available at the current time and compatible with the user's groups.
+      responses:
+        '200':
+          description: Titles available for purchase
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TitleListResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /api/titles/user/{userId}/{userTitleId}:
     parameters:
-      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/UserIdParam'
       - name: userTitleId
         in: path
         required: true
@@ -772,7 +1057,7 @@ paths:
           $ref: '#/components/responses/ServerError'
   /api/titles/user/{userId}/{userTitleId}/activate:
     parameters:
-      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/UserIdParam'
       - name: userTitleId
         in: path
         required: true
@@ -813,27 +1098,44 @@ paths:
               $ref: '#/components/schemas/ValidationRequest'
       responses:
         '200':
-          description: Validation succeeded or failed with a structured message
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ValidationMessage'
+          $ref: '#/components/responses/ValidationSuccess'
         '400':
-          $ref: '#/components/responses/ValidationMessage'
+          $ref: '#/components/responses/ValidationMissingParameters'
         '403':
-          $ref: '#/components/responses/ValidationMessage'
+          $ref: '#/components/responses/ValidationForbidden'
         '404':
-          $ref: '#/components/responses/ValidationMessage'
+          $ref: '#/components/responses/ValidationNotFound'
         '410':
-          $ref: '#/components/responses/ValidationMessage'
+          $ref: '#/components/responses/ValidationGone'
         '429':
-          $ref: '#/components/responses/ValidationMessage'
+          $ref: '#/components/responses/ValidationReentryNotPassed'
         '500':
-          $ref: '#/components/responses/ValidationMessage'
+          $ref: '#/components/responses/ValidationInternalServer'
+  /api/validation/history/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+    get:
+      tags: [Validation]
+      operationId: getValidationHistory
+      summary: Get validation history for user
+      description: Returns the user's validations enriched with station and title names.
+      responses:
+        '200':
+          $ref: '#/components/responses/ValidationHistorySuccess'
+        '500':
+          $ref: '#/components/responses/ValidationHistoryInternalServer'
 components:
   parameters:
     UserId:
       name: id
+      in: path
+      required: true
+      description: 12-digit user identifier.
+      schema:
+        type: string
+        example: '123456789012'
+    UserIdParam:
+      name: userId
       in: path
       required: true
       description: 12-digit user identifier.
@@ -848,6 +1150,14 @@ components:
       schema:
         type: string
         example: '16'
+    RequestId:
+      name: id
+      in: path
+      required: true
+      description: Request identifier (UUID).
+      schema:
+        type: string
+        example: 2cfb0b5b-2c6a-4d8f-9e4b-1cfa3d2c4a9f
     ZoneId:
       name: id
       in: path
@@ -875,12 +1185,206 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    AuthMessage:
+      description: Authentication workflow response payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthMessage'
+    AuthRegisterSuccess:
+      description: Registration succeeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthRegisterSuccess'
+    AuthRegisterBadRequest:
+      description: Missing or invalid registration parameters
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/AuthRegisterMissingParameters'
+              - $ref: '#/components/schemas/AuthRegisterInvalidParameters'
+    AuthRegisterConflict:
+      description: User already exists
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/AuthRegisterUserExistsEmail'
+              - $ref: '#/components/schemas/AuthRegisterUserExistsGovId'
+    AuthLoginSuccess:
+      description: Login succeeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthLoginSuccess'
+    AuthLoginBadRequest:
+      description: Missing login parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthLoginMissingParameters'
+    AuthLoginUnauthorized:
+      description: Invalid login credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthLoginInvalidCredentials'
+    AuthSessionValid:
+      description: Session is valid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthSessionValid'
+    AuthSessionBadRequest:
+      description: Missing session parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthSessionMissingParameters'
+    AuthSessionUnauthorized:
+      description: Session token invalid or expired
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/AuthSessionInvalidToken'
+              - $ref: '#/components/schemas/AuthSessionExpired'
+    AuthSessionNotFound:
+      description: Session not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthSessionNotFound'
+    AuthServerError:
+      description: Internal auth server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthInternalServer'
     ValidationMessage:
       description: Validation workflow response payload
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ValidationMessage'
+    ValidationSuccess:
+      description: Validation succeeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationSuccess'
+    ValidationMissingParameters:
+      description: Missing parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationMissingParameters'
+    ValidationForbidden:
+      description: Validation forbidden
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ValidationSuportInactive'
+              - $ref: '#/components/schemas/ValidationCannotInitialize'
+              - $ref: '#/components/schemas/ValidationInvalidZone'
+    ValidationNotFound:
+      description: Validation resource not found
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ValidationSuportNotFound'
+              - $ref: '#/components/schemas/ValidationStationNotAvailable'
+              - $ref: '#/components/schemas/ValidationNoActiveTitle'
+    ValidationGone:
+      description: Validation failed due to expiration or exhausted uses
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ValidationTitleExpired'
+              - $ref: '#/components/schemas/ValidationNoUsesLeft'
+    ValidationSuportNotFound:
+      description: Suport not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationSuportNotFound'
+    ValidationSuportInactive:
+      description: Suport inactive
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationSuportInactive'
+    ValidationStationNotAvailable:
+      description: Station not available
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationStationNotAvailable'
+    ValidationNoActiveTitle:
+      description: No active title for user
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationNoActiveTitle'
+    ValidationTitleExpired:
+      description: User title expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationTitleExpired'
+    ValidationCannotInitialize:
+      description: User title cannot be initialized at this station
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationCannotInitialize'
+    ValidationReentryNotPassed:
+      description: Re-entry time not passed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationReentryNotPassed'
+    ValidationInvalidZone:
+      description: User title invalid for zone
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationInvalidZone'
+    ValidationNoUsesLeft:
+      description: No uses left
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationNoUsesLeft'
+    ValidationInternalServer:
+      description: Internal server error during validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationInternalServer'
+    ValidationHistoryMessage:
+      description: Validation history response payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationHistoryMessage'
+    ValidationHistorySuccess:
+      description: Validation history fetched successfully
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationHistorySuccess'
+    ValidationHistoryInternalServer:
+      description: Internal server error during history fetch
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationHistoryInternalServer'
   schemas:
     RootResponse:
       type: object
@@ -888,10 +1392,15 @@ components:
         message:
           type: string
           example: Welcome to PORTA'M Server API
+        version:
+          type: string
+          description: API version string declared in `server.js`.
+          example: 1.1.0
         timestamp:
           type: string
-          format: date-time
-      required: [message, timestamp]
+          description: ISO-like timestamp without timezone (server boot time).
+          example: 2026-02-02T10:15:30
+      required: [message, version, timestamp]
     HealthResponse:
       type: object
       properties:
@@ -912,6 +1421,362 @@ components:
           type: string
           example: Something went wrong
       required: [success, error]
+    AuthRegisterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        surname:
+          type: string
+        govId:
+          type: string
+          description: Government-issued identifier.
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthdate:
+          type: string
+          format: date
+        password:
+          type: string
+          format: password
+        deviceId:
+          type: string
+          description: Client device identifier used to scope the session.
+      required: [name, surname, govId, email, phone, birthdate, password, deviceId]
+    AuthLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        deviceId:
+          type: string
+      required: [email, password, deviceId]
+    AuthCheckSessionRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        deviceId:
+          type: string
+        token:
+          type: string
+      required: [userId, deviceId, token]
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        surname:
+          type: string
+        govId:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthdate:
+          type: string
+          format: date
+      required: [id, name, surname, govId, email, phone, birthdate]
+    AuthMessage:
+      type: object
+      properties:
+        success:
+          type: boolean
+        code:
+          type: integer
+        status:
+          type: string
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        internal:
+          type: string
+          description: Optional internal error detail for server errors.
+        userId:
+          type: string
+        token:
+          type: string
+        expiration:
+          type: string
+          description: ISO-like timestamp without timezone (session expiry).
+          example: 2026-02-09T10:15:30
+        user:
+          $ref: '#/components/schemas/AuthUser'
+      required: [success, code, status, msg]
+    AuthSuccessMessage:
+      type: object
+      properties:
+        success:
+          const: true
+        code:
+          type: integer
+        status:
+          type: string
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        userId:
+          type: string
+        token:
+          type: string
+        expiration:
+          type: string
+          description: ISO-like timestamp without timezone (session expiry).
+          example: 2026-02-09T10:15:30
+        user:
+          $ref: '#/components/schemas/AuthUser'
+      required: [success, code, status, msg, userId, token, expiration, user]
+      additionalProperties: false
+    AuthErrorMessage:
+      type: object
+      properties:
+        success:
+          const: false
+        code:
+          type: integer
+        status:
+          type: string
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        internal:
+          type: string
+          description: Optional internal error detail for server errors.
+      required: [success, code, status, msg]
+      additionalProperties: false
+    AuthRegisterSuccess:
+      allOf:
+        - $ref: '#/components/schemas/AuthSuccessMessage'
+        - type: object
+          properties:
+            code:
+              const: 201
+            status:
+              const: REGISTER_SUCCESS
+    AuthRegisterMissingParameters:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 400
+            status:
+              const: REGISTER_MISSING_PARAMETERS
+    AuthRegisterInvalidParameters:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 400
+            status:
+              const: REGISTER_INVALID_PARAMETERS
+    AuthRegisterUserExistsEmail:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 409
+            status:
+              const: REGISTER_USER_EXISTS_EMAIL
+    AuthRegisterUserExistsGovId:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 409
+            status:
+              const: REGISTER_USER_EXISTS_GOVID
+    AuthLoginSuccess:
+      allOf:
+        - $ref: '#/components/schemas/AuthSuccessMessage'
+        - type: object
+          properties:
+            code:
+              const: 200
+            status:
+              const: LOGIN_SUCCESS
+    AuthLoginMissingParameters:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 400
+            status:
+              const: LOGIN_MISSING_PARAMETERS
+    AuthLoginInvalidCredentials:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 401
+            status:
+              const: LOGIN_INVALID_CREDENTIALS
+    AuthSessionValid:
+      allOf:
+        - $ref: '#/components/schemas/AuthSuccessMessage'
+        - type: object
+          properties:
+            code:
+              const: 200
+            status:
+              const: SESSION_VALID
+    AuthSessionMissingParameters:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 400
+            status:
+              const: SESSION_MISSING_PARAMETERS
+    AuthSessionNotFound:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 404
+            status:
+              const: SESSION_NOT_FOUND
+    AuthSessionInvalidToken:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 401
+            status:
+              const: SESSION_INVALID_TOKEN
+    AuthSessionExpired:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 401
+            status:
+              const: SESSION_EXPIRED
+    AuthInternalServer:
+      allOf:
+        - $ref: '#/components/schemas/AuthErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 500
+            status:
+              const: ERROR_INTERNAL_SERVER
+    Request:
+      type: object
+      properties:
+        id:
+          type: string
+          description: UUID request identifier.
+        created_at:
+          type: string
+          description: Timestamp formatted as YYYY-MM-DD HH:mm:ss.
+          example: 2026-02-02 10:15:30
+        user:
+          type: string
+        group:
+          type: integer
+        evaluated:
+          type: boolean
+        evaluated_at:
+          type: string
+          description: Timestamp formatted as YYYY-MM-DD HH:mm:ss.
+          example: 2026-02-02 11:30:00
+        evaluated_by:
+          type: string
+        approved:
+          type: boolean
+      required: [id, created_at, user, group]
+    RequestCreateRequest:
+      type: object
+      properties:
+        user:
+          type: string
+        group:
+          type: integer
+      required: [user, group]
+    RequestDecisionRequest:
+      type: object
+      properties:
+        evaluated_by:
+          type: string
+          description: Admin user identifier that evaluates the request.
+      required: [evaluated_by]
+    RequestListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/Request'
+      required: [success, requests]
+    RequestResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        request:
+          $ref: '#/components/schemas/Request'
+      required: [success, request]
+    Receipt:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        user:
+          type: string
+        amount:
+          type: number
+          format: float
+      required: [id, timestamp, user, amount]
+    ReceiptCreateRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          format: float
+      required: [amount]
+    ReceiptListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user_id:
+          type: string
+        receipts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Receipt'
+      required: [success, user_id, receipts]
+    ReceiptResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        receipt:
+          $ref: '#/components/schemas/Receipt'
+      required: [success, receipt]
     User:
       type: object
       properties:
@@ -971,12 +1836,16 @@ components:
         birthdate:
           type: string
           format: date
+        password:
+          type: string
+          format: password
+          description: Required by current implementation (hashed before insert).
         groups:
           type: array
           description: Optional list of group IDs to insert into `user_groups`.
           items:
             type: string
-      required: [name, surname, gov_id, email, phone, birthdate]
+      required: [name, surname, gov_id, email, phone, birthdate, password]
     UserUpdateRequest:
       type: object
       properties:
@@ -994,6 +1863,11 @@ components:
         birthdate:
           type: string
           format: date
+        password:
+          type: string
+          format: password
+          description: Required by current implementation (hashed before update).
+      required: [password]
     UserWriteResponse:
       type: object
       properties:
@@ -1016,7 +1890,6 @@ components:
         expiration:
           type: string
           format: date
-          nullable: true
       required: [user, group]
     UserGroupAssignmentRequest:
       type: object
@@ -1027,7 +1900,6 @@ components:
         manualExpiration:
           type: string
           format: date
-          nullable: true
           description: Optional custom expiration date (YYYY-MM-DD).
       required: [groupId]
     UserGroupAssignmentResponse:
@@ -1042,7 +1914,6 @@ components:
         expiration:
           type: string
           format: date
-          nullable: true
       required: [success, user_id, group_id]
     UserGroupRemovalResponse:
       type: object
@@ -1066,6 +1937,23 @@ components:
           items:
             $ref: '#/components/schemas/UserGroupMembership'
       required: [success, user_id, groups]
+    UserAvailableGroupsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user_id:
+          type: string
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/Group'
+      required: [success, user_id, groups]
+    SuportInfo:
+      oneOf:
+        - type: object
+          additionalProperties: true
+        - type: string
     Suport:
       type: object
       properties:
@@ -1073,11 +1961,11 @@ components:
           type: string
         user:
           type: string
-          nullable: true
         activation:
           type: string
           format: date-time
-          nullable: true
+        info:
+          $ref: '#/components/schemas/SuportInfo'
       required: [uid]
     SuportListResponse:
       type: object
@@ -1097,6 +1985,8 @@ components:
         uid:
           type: string
           description: Unique suport identifier to attach.
+        info:
+          $ref: '#/components/schemas/SuportInfo'
       required: [uid]
     SuportResponse:
       type: object
@@ -1125,7 +2015,6 @@ components:
           type: string
         expiration:
           type: integer
-          nullable: true
           description: Days until expiration; null means never expires.
       required: [id, name, description]
     GroupListResponse:
@@ -1151,14 +2040,12 @@ components:
       properties:
         id:
           type: string
-          nullable: true
         name:
           type: string
         description:
           type: string
         expiration:
           type: integer
-          nullable: true
       required: [name, description]
     GroupUpdateRequest:
       allOf:
@@ -1291,10 +2178,8 @@ components:
           type: string
         uses:
           type: integer
-          nullable: true
         expiration:
           type: integer
-          nullable: true
           description: Days until expiration after activation.
         available:
           type: string
@@ -1309,11 +2194,9 @@ components:
           type: integer
         link:
           type: integer
-          nullable: true
           description: Minutes the validation stays linked for free interchanges.
         re_entry:
           type: integer
-          nullable: true
           description: Minutes before the same station can be validated again.
         groups:
           type: array
@@ -1326,7 +2209,7 @@ components:
           items:
             type: integer
       required:
-        [id, name, description, available, unavailable, price, num_zones, groups, excluded_groups]
+        [id, name, description, available, unavailable, price, num_zones]
     TitleListResponse:
       type: object
       properties:
@@ -1356,10 +2239,8 @@ components:
           type: string
         uses:
           type: integer
-          nullable: true
         expiration:
           type: integer
-          nullable: true
         available:
           type: string
           format: date-time
@@ -1373,19 +2254,15 @@ components:
           type: integer
         link:
           type: integer
-          nullable: true
         re_entry:
           type: integer
-          nullable: true
         groups:
           type: array
-          nullable: true
           description: Optional whitelist of groups that may buy the title (mutually exclusive with `excluded_groups`).
           items:
             type: integer
         excluded_groups:
           type: array
-          nullable: true
           description: Optional blacklist of groups (mutually exclusive with `groups`).
           items:
             type: integer
@@ -1399,10 +2276,8 @@ components:
           type: string
         uses:
           type: integer
-          nullable: true
         expiration:
           type: integer
-          nullable: true
         available:
           type: string
           format: date-time
@@ -1416,10 +2291,8 @@ components:
           type: integer
         link:
           type: integer
-          nullable: true
         re_entry:
           type: integer
-          nullable: true
         groups:
           type: array
           items:
@@ -1437,28 +2310,28 @@ components:
           type: string
         title:
           type: integer
+        title_name:
+          type: string
+          description: Title name from catalog (present on list/active endpoints).
+        title_description:
+          type: string
+          description: Title description from catalog (present on list/active endpoints).
         uses_left:
           type: integer
-          nullable: true
         first_use:
           type: string
           format: date-time
-          nullable: true
         expiration:
           type: string
           format: date-time
-          nullable: true
         re_entry:
           type: integer
-          nullable: true
         zone_origin:
           type: integer
-          nullable: true
         active:
           type: boolean
         link:
           type: integer
-          nullable: true
         num_zones:
           type: integer
       required: [id, user, title, active]
@@ -1504,19 +2377,15 @@ components:
               type: integer
             uses_left:
               type: integer
-              nullable: true
             expiration:
               type: string
               format: date
-              nullable: true
             re_entry:
               type: integer
-              nullable: true
             active:
               type: boolean
             link:
               type: integer
-              nullable: true
             num_zones:
               type: integer
       required: [success, message]
@@ -1572,12 +2441,252 @@ components:
           type: string
         uses_left:
           type: integer
-          nullable: true
         expiration:
           type: string
           format: date-time
-          nullable: true
         link:
           type: boolean
           description: Indicates whether the validation was free because it was within link time.
       required: [success, code, status, msg]
+    ValidationSuccessMessage:
+      type: object
+      properties:
+        success:
+          const: true
+        code:
+          type: integer
+        status:
+          type: string
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        validation_id:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+        station_id:
+          type: integer
+        user_title_id:
+          type: string
+        uses_left:
+          type: integer
+        expiration:
+          type: string
+          format: date-time
+        link:
+          type: boolean
+      required:
+        [success, code, status, msg, validation_id, timestamp, station_id, user_title_id, uses_left, expiration, link]
+      additionalProperties: false
+    ValidationErrorMessage:
+      type: object
+      properties:
+        success:
+          const: false
+        code:
+          type: integer
+        status:
+          type: string
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        internal:
+          type: string
+          description: Optional internal error detail for server errors.
+      required: [success, code, status, msg]
+      additionalProperties: false
+    ValidationSuccess:
+      allOf:
+        - $ref: '#/components/schemas/ValidationSuccessMessage'
+        - type: object
+          properties:
+            code:
+              const: 200
+            status:
+              const: VALIDATION_SUCCESS
+    ValidationMissingParameters:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 400
+            status:
+              const: ERROR_MISSING_PARAMETERS
+    ValidationSuportNotFound:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 404
+            status:
+              const: ERROR_SUPORT_NOT_FOUND
+    ValidationStationNotAvailable:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 404
+            status:
+              const: ERROR_STATION_NOT_AVAILABLE
+    ValidationNoActiveTitle:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 404
+            status:
+              const: ERROR_NO_USER_TITLE_ACTIVE
+    ValidationSuportInactive:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 403
+            status:
+              const: ERROR_SUPORT_INACTIVE
+    ValidationCannotInitialize:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 403
+            status:
+              const: ERROR_CANNOT_INITIALIZE_USER_TITLE
+    ValidationInvalidZone:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 403
+            status:
+              const: ERROR_USER_TITLE_NOT_VALID_FOR_ZONE
+    ValidationTitleExpired:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 410
+            status:
+              const: ERROR_USER_TITLE_EXPIRED
+    ValidationNoUsesLeft:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 410
+            status:
+              const: ERROR_NO_USES_LEFT
+    ValidationReentryNotPassed:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 429
+            status:
+              const: ERROR_REENTRY_TIME_NOT_PASSED
+    ValidationInternalServer:
+      allOf:
+        - $ref: '#/components/schemas/ValidationErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 500
+            status:
+              const: ERROR_INTERNAL_SERVER
+    ValidationHistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Sequential identifier assigned by the API (newest first).
+        timestamp:
+          type: string
+          format: date-time
+        station:
+          type: string
+        suport:
+          type: string
+        title:
+          type: string
+      required: [id, timestamp, station, suport, title]
+    ValidationHistoryMessage:
+      type: object
+      properties:
+        success:
+          type: boolean
+        code:
+          type: integer
+        status:
+          type: string
+          example: HISTORY_FETCH_SUCCESS
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        user_id:
+          type: string
+        validations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationHistoryItem'
+      required: [success, code, status, msg]
+    ValidationHistorySuccessMessage:
+      type: object
+      properties:
+        success:
+          const: true
+        code:
+          type: integer
+        status:
+          type: string
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        user_id:
+          type: string
+        validations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationHistoryItem'
+      required: [success, code, status, msg, user_id, validations]
+      additionalProperties: false
+    ValidationHistoryErrorMessage:
+      type: object
+      properties:
+        success:
+          const: false
+        code:
+          type: integer
+        status:
+          type: string
+        msg:
+          $ref: '#/components/schemas/LocalizedMessage'
+        internal:
+          type: string
+          description: Optional internal error detail for server errors.
+      required: [success, code, status, msg]
+      additionalProperties: false
+    ValidationHistorySuccess:
+      allOf:
+        - $ref: '#/components/schemas/ValidationHistorySuccessMessage'
+        - type: object
+          properties:
+            code:
+              const: 200
+            status:
+              const: HISTORY_FETCH_SUCCESS
+    ValidationHistoryInternalServer:
+      allOf:
+        - $ref: '#/components/schemas/ValidationHistoryErrorMessage'
+        - type: object
+          properties:
+            code:
+              const: 500
+            status:
+              const: ERROR_INTERNAL_SERVER
