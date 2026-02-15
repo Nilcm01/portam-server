@@ -77,9 +77,9 @@ const messages = {
         code: 404,
         status: 'ERROR_NO_USER_TITLE_ACTIVE',
         msg: {
-            ca: 'No tens cap títol actiu',
-            en: 'You have no active title',
-            es: 'No tienes ningún título activo'
+            ca: 'Cap títol actiu',
+            en: 'No active title',
+            es: 'Ningún título activo'
         }
     },
 
@@ -88,9 +88,9 @@ const messages = {
         code: 410,
         status: 'ERROR_USER_TITLE_EXPIRED',
         msg: {
-            ca: 'El teu títol ha caducat',
-            en: 'Your title has expired',
-            es: 'Tu título ha caducado'
+            ca: 'Títol caducat',
+            en: 'Expired title',
+            es: 'Título caducado'
         }
     },
 
@@ -110,9 +110,9 @@ const messages = {
         code: 429,
         status: 'ERROR_REENTRY_TIME_NOT_PASSED',
         msg: {
-            ca: 'No pots tornar a validar a la mateixa estació encara',
-            en: 'You cannot validate at the same station yet',
-            es: 'No puedes volver a validar en la misma estación todavía'
+            ca: 'Reentrada no permesa',
+            en: 'Forbidden reentry',
+            es: 'Reentrada no permitida'
         }
     },
 
@@ -132,9 +132,9 @@ const messages = {
         code: 410,
         status: 'ERROR_NO_USES_LEFT',
         msg: {
-            ca: 'No et queden viatges disponibles',
-            en: 'You have no trips left',
-            es: 'No te quedan viajes disponibles'
+            ca: 'Viatges exhaurits',
+            en: 'No trips left',
+            es: 'Viajes agotados'
         }
     },
 
